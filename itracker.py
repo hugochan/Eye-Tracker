@@ -253,7 +253,7 @@ class EyeTracker(object):
         val_err_history = []
         n_incr_error = 0  # nb. of consecutive increase in error
         best_loss = np.Inf
-        n_batches = train_x.shape[0] / batch_size + (train_x.shape[0] % batch_size != 0)
+        n_batches = train_data[0].shape[0] / batch_size + (train_data[0].shape[0] % batch_size != 0)
 
         # Create the collection
         tf.get_collection("validation_nodes")
@@ -401,8 +401,8 @@ def train(args):
     val_y = val_y.astype('float32')
     start = timeit.default_timer()
     et = EyeTracker()
-    train_loss_history, train_err_history, val_loss_history, val_err_history = et.train((train_eye_left, train_eye_right, train_face, train_face_mask, train_y), \
-                                            (val_eye_left, val_eye_right, val_face, val_face_mask, val_y),\
+    train_loss_history, train_err_history, val_loss_history, val_err_history = et.train([train_eye_left, train_eye_right, train_face, train_face_mask, train_y], \
+                                            [val_eye_left, val_eye_right, val_face, val_face_mask, val_y],\
                                             lr=args.learning_rate, \
                                             batch_size=args.batch_size, \
                                             max_epoch=args.max_epoch, \
