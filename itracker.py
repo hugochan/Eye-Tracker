@@ -438,8 +438,8 @@ def test(args):
 
     et = EyeTracker()
     sess = et.restore_model(args.load_model)
-    if args.plot_filter:
-        et.feature_visualize(sess, [4, 8], layer_ids=[0], channel_ids=range(conv1_out), out=args.plot_filter)
+    # if args.plot_filter:
+        # et.feature_visualize(sess, [4, 8], layer_ids=[0], channel_ids=range(conv1_out), out=args.plot_filter)
     error = et.calc_error([val_eye_left, val_eye_right, val_face, val_face_mask, val_y], sess)
     print 'Error: %.5f' % error
     sess.close()
@@ -494,8 +494,4 @@ def main():
         test(args)
 
 if __name__ == '__main__':
-    # main()
-    train_loss=np.random.randn(10)
-    train_err=np.random.randn(10)
-    test_err=np.random.randn(10)
-    plot_loss(train_loss, train_err, test_err)
+    main()
