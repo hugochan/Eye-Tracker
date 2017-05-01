@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 # Network Parameters
 img_size = 64
 n_channel = 3
-n_input = img_size * img_size * n_channel
-n_classes = 10
+mask_size = 25
+
 # pathway: eye_left and eye_right
 conv1_eye_size = 11
 conv1_eye_out = 96
@@ -34,6 +34,7 @@ conv4_eye_out = 64
 pool4_eye_size = 2
 pool4_eye_stride = 2
 
+eye_size = 2 * 2 * 2 * conv4_eye_out
 
 # pathway: face
 conv1_face_size = 11
@@ -55,6 +56,8 @@ conv4_face_size = 1
 conv4_face_out = 64
 pool4_face_size = 2
 pool4_face_stride = 2
+
+face_size = 2 * 2 * conv4_face_out
 
 # fc layer
 fc_eye_size = 128
@@ -100,25 +103,25 @@ def dense_to_one_hot(labels_dense, num_classes):
     labels_one_hot.flat[index_offset + labels_dense.ravel()] = 1
     return labels_one_hot
 
-def shuffle_data(X_data, Y_data):
-    idx = np.arange(X_data.shape[0])
+def shuffle_data(data):
+    idx = np.arange(data[0].shape[0])
     np.random.shuffle(idx)
-    X_data = X_data[idx]
-    Y_data = Y_data[idx]
-    return X_data, Y_data
+    for i in range(len(data)):
+        data[i] = data[i][idx]
+    return data
 
-def next_batch(X, Y, batch_size):
-    for i in np.arange(0, X.shape[0], batch_size):
+def next_batch(data, batch_size):
+    for i in np.arange(0, data[0].shape[0], batch_size):
         # yield a tuple of the current batched data
-        yield (X[i: i + batch_size], Y[i: i + batch_size])
+        yield [each[i: i + batch_size] for each in data]
 
-class ConvNet(object):
+class EyeTracker(object):
     def __init__(self):
         # tf Graph input
         self.eye_left = tf.placeholder(tf.float32, [None, img_size, img_size, n_channel], name='eye_left')
         self.eye_right = tf.placeholder(tf.float32, [None, img_size, img_size, n_channel], name='eye_right')
         self.face = tf.placeholder(tf.float32, [None, img_size, img_size, n_channel], name='face')
-        self.face_mask = tf.placeholder(tf.float32, [None, img_size * img_size], name='face_mask')
+        self.face_mask = tf.placeholder(tf.float32, [None, mask_size * mask_size], name='face_mask')
         self.y = tf.placeholder(tf.float32, [None, 2], name='pos')
         # Store layers weight & bias
         self.weights = {
@@ -130,10 +133,10 @@ class ConvNet(object):
             'conv2_face': tf.get_variable('conv2_face_w', shape=(conv2_face_size, conv2_face_size, conv1_face_out, conv2_face_out), initializer=tf.contrib.layers.xavier_initializer()),
             'conv3_face': tf.get_variable('conv3_face_w', shape=(conv3_face_size, conv3_face_size, conv2_face_out, conv3_face_out), initializer=tf.contrib.layers.xavier_initializer()),
             'conv4_face': tf.get_variable('conv4_face_w', shape=(conv4_face_size, conv4_face_size, conv3_face_out, conv4_face_out), initializer=tf.contrib.layers.xavier_initializer()),
-            'fc_eye': tf.get_variable('fc_eye_w', shape=(fc_eye_size, fc_eye_size), initializer=tf.contrib.layers.xavier_initializer()),
-            'fc_face': tf.get_variable('fc_face_w', shape=(fc_face_size, fc_face_size), initializer=tf.contrib.layers.xavier_initializer()),
+            'fc_eye': tf.get_variable('fc_eye_w', shape=(eye_size, fc_eye_size), initializer=tf.contrib.layers.xavier_initializer()),
+            'fc_face': tf.get_variable('fc_face_w', shape=(face_size, fc_face_size), initializer=tf.contrib.layers.xavier_initializer()),
             'fc2_face': tf.get_variable('fc2_face_w', shape=(fc_face_size, fc2_face_size), initializer=tf.contrib.layers.xavier_initializer()),
-            'fc_face_mask': tf.get_variable('fc_face_mask_w', shape=(img_size * img_size, fc_face_mask_size), initializer=tf.contrib.layers.xavier_initializer()),
+            'fc_face_mask': tf.get_variable('fc_face_mask_w', shape=(mask_size * mask_size, fc_face_mask_size), initializer=tf.contrib.layers.xavier_initializer()),
             'fc2_face_mask': tf.get_variable('fc2_face_mask_w', shape=(fc_face_mask_size, fc2_face_mask_size), initializer=tf.contrib.layers.xavier_initializer()),
             'fc': tf.get_variable('fc_w', shape=(fc_eye_size + fc2_face_size + fc2_face_mask_size, fc_size), initializer=tf.contrib.layers.xavier_initializer()),
             'fc2': tf.get_variable('fc2_w', shape=(fc_size, fc2_size), initializer=tf.contrib.layers.xavier_initializer())
@@ -157,7 +160,7 @@ class ConvNet(object):
         }
 
         # Construct model
-        self.pred = self.conv_net(self.eye_left, self.eye_right, self.face, self.face_mask, self.weights, self.biases)
+        self.pred = self.itracker_nets(self.eye_left, self.eye_right, self.face, self.face_mask, self.weights, self.biases)
 
     # Create some wrappers for simplicity
     def conv2d(self, x, W, b, strides=1):
@@ -172,24 +175,66 @@ class ConvNet(object):
                               padding='VALID')
 
     # Create model
-    def conv_net(self, eye_left, eye_right, face, face_mask, weights, biases):
-        # Convolution Layer
-        conv1 = self.conv2d(x, weights['wc1'], biases['bc1'], strides=conv1_stride)
-        # Max Pooling (down-sampling)
-        conv1 = self.maxpool2d(conv1, k=pool1_size, strides=pool1_stride)
+    def itracker_nets(self, eye_left, eye_right, face, face_mask, weights, biases):
+        # pathway: left eye
+        eye_left = self.conv2d(eye_left, weights['conv1_eye'], biases['conv1_eye'], strides=1)
+        eye_left = self.maxpool2d(eye_left, k=pool1_eye_size, strides=pool1_eye_stride)
 
-        # Convolution Layer
-        conv2 = self.conv2d(conv1, weights['wc2'], biases['bc2'], strides=conv2_stride)
-        # Max Pooling (down-sampling)
-        conv2 = self.maxpool2d(conv2, k=pool2_size, strides=pool2_stride)
+        eye_left = self.conv2d(eye_left, weights['conv2_eye'], biases['conv2_eye'], strides=1)
+        eye_left = self.maxpool2d(eye_left, k=pool2_eye_size, strides=pool2_eye_stride)
 
-        # Convolution Layer
-        conv3 = self.conv2d(conv2, weights['wc3'], biases['bc3'], strides=conv3_stride)
+        eye_left = self.conv2d(eye_left, weights['conv3_eye'], biases['conv3_eye'], strides=1)
+        eye_left = self.maxpool2d(eye_left, k=pool3_eye_size, strides=pool3_eye_stride)
 
-        # Fully connected layer
-        # Reshape conv3 output to fit fully connected layer input
-        fc1 = tf.reshape(conv3, [-1, fc_size])
-        out = tf.add(tf.matmul(fc1, weights['out']), biases['out'])
+        eye_left = self.conv2d(eye_left, weights['conv4_eye'], biases['conv4_eye'], strides=1)
+        eye_left = self.maxpool2d(eye_left, k=pool4_eye_size, strides=pool4_eye_stride)
+
+        # pathway: right eye
+        eye_right = self.conv2d(eye_right, weights['conv1_eye'], biases['conv1_eye'], strides=1)
+        eye_right = self.maxpool2d(eye_right, k=pool1_eye_size, strides=pool1_eye_stride)
+
+        eye_right = self.conv2d(eye_right, weights['conv2_eye'], biases['conv2_eye'], strides=1)
+        eye_right = self.maxpool2d(eye_right, k=pool2_eye_size, strides=pool2_eye_stride)
+
+        eye_right = self.conv2d(eye_right, weights['conv3_eye'], biases['conv3_eye'], strides=1)
+        eye_right = self.maxpool2d(eye_right, k=pool3_eye_size, strides=pool3_eye_stride)
+
+        eye_right = self.conv2d(eye_right, weights['conv4_eye'], biases['conv4_eye'], strides=1)
+        eye_right = self.maxpool2d(eye_right, k=pool4_eye_size, strides=pool4_eye_stride)
+
+        # pathway: face
+        face = self.conv2d(face, weights['conv1_face'], biases['conv1_face'], strides=1)
+        face = self.maxpool2d(face, k=pool1_face_size, strides=pool1_face_stride)
+
+        face = self.conv2d(face, weights['conv2_face'], biases['conv2_face'], strides=1)
+        face = self.maxpool2d(face, k=pool2_face_size, strides=pool2_face_stride)
+
+        face = self.conv2d(face, weights['conv3_face'], biases['conv3_face'], strides=1)
+        face = self.maxpool2d(face, k=pool3_face_size, strides=pool3_face_stride)
+
+        face = self.conv2d(face, weights['conv4_face'], biases['conv4_face'], strides=1)
+        face = self.maxpool2d(face, k=pool4_face_size, strides=pool4_face_stride)
+
+        # fc layer
+        # eye
+        eye_left = tf.reshape(eye_left, [-1, int(np.prod(eye_left.get_shape()[1:]))])
+        eye_right = tf.reshape(eye_right, [-1, int(np.prod(eye_right.get_shape()[1:]))])
+        eye = tf.concat([eye_left, eye_right], 1)
+        eye = tf.nn.relu(tf.add(tf.matmul(eye, weights['fc_eye']), biases['fc_eye']))
+
+        # face
+        face = tf.reshape(face, [-1, int(np.prod(face.get_shape()[1:]))])
+        face = tf.nn.relu(tf.add(tf.matmul(face, weights['fc_face']), biases['fc_face']))
+        face = tf.nn.relu(tf.add(tf.matmul(face, weights['fc2_face']), biases['fc2_face']))
+
+        # face mask
+        face_mask = tf.nn.relu(tf.add(tf.matmul(face_mask, weights['fc_face_mask']), biases['fc_face_mask']))
+        face_mask = tf.nn.relu(tf.add(tf.matmul(face_mask, weights['fc2_face_mask']), biases['fc2_face_mask']))
+
+        # all
+        fc = tf.concat([eye, face, face_mask], 1)
+        fc = tf.nn.relu(tf.add(tf.matmul(fc, weights['fc']), biases['fc']))
+        out = tf.add(tf.matmul(fc, weights['fc2']), biases['fc2'])
         return out
 
     def train(self, train_data, val_data, lr=1e-3, batch_size=128, max_epoch=1000, min_delta=1e-4, patience=10, print_per_epoch=10, out_model='my_model'):
@@ -197,16 +242,15 @@ class ConvNet(object):
 
 
         # Define loss and optimizer
-        self.cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.pred, labels=self.y))
+        self.cost = tf.losses.mean_squared_error(self.y, self.pred)
         self.optimizer = tf.train.AdamOptimizer(learning_rate=lr).minimize(self.cost)
 
         # Evaluate model
-        correct_pred = tf.equal(tf.argmax(self.pred, 1), tf.argmax(self.y, 1))
-        accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+        self.err = tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.squared_difference(self.pred, self.y), axis=1)))
         train_loss_history = []
-        train_acc_history = []
+        train_err_history = []
         val_loss_history = []
-        val_acc_history = []
+        val_err_history = []
         n_incr_error = 0  # nb. of consecutive increase in error
         best_loss = np.Inf
         n_batches = train_x.shape[0] / batch_size + (train_x.shape[0] % batch_size != 0)
@@ -214,9 +258,12 @@ class ConvNet(object):
         # Create the collection
         tf.get_collection("validation_nodes")
         # Add stuff to the collection.
-        tf.add_to_collection("validation_nodes", self.x)
-        tf.add_to_collection("validation_nodes", tf.argmax(self.pred, 1))
-        saver = tf.train.Saver(max_to_keep=patience)
+        tf.add_to_collection("validation_nodes", self.eye_left)
+        tf.add_to_collection("validation_nodes", self.eye_right)
+        tf.add_to_collection("validation_nodes", self.face)
+        tf.add_to_collection("validation_nodes", self.face_mask)
+        tf.add_to_collection("validation_nodes", self.pred)
+        saver = tf.train.Saver(max_to_keep=1)
 
         # Initializing the variables
         init = tf.global_variables_initializer()
@@ -228,23 +275,27 @@ class ConvNet(object):
                 n_incr_error += 1
                 train_loss = 0.
                 val_loss = 0.
-                train_acc = 0.
-                val_acc = 0.
-                train_x, train_y = shuffle_data(train_x, train_y)
-                for batch_x, batch_y in next_batch(train_x, train_y, batch_size):
+                train_err = 0.
+                val_err = 0.
+                train_data = shuffle_data(train_data)
+                for batch_eye_left, batch_eye_right, batch_face, batch_face_mask, batch_y in next_batch(train_data, batch_size):
                     # Run optimization op (backprop)
-                    sess.run(self.optimizer, feed_dict={self.x: batch_x, self.y: batch_y})
-                    train_batch_loss, train_batch_acc = sess.run([self.cost, accuracy], feed_dict={self.x: batch_x, self.y: batch_y})
+                    sess.run(self.optimizer, feed_dict={self.eye_left: batch_eye_left, \
+                                self.eye_right: batch_eye_right, self.face: batch_face, \
+                                self.face_mask: batch_face_mask, self.y: batch_y})
+                    train_batch_loss, train_batch_err = sess.run([self.cost, self.err], feed_dict={self.eye_left: batch_eye_left, \
+                                self.eye_right: batch_eye_right, self.face: batch_face, \
+                                self.face_mask: batch_face_mask, self.y: batch_y})
                     train_loss += train_batch_loss / n_batches
-                    train_acc += train_batch_acc / n_batches
-                    val_batch_loss, val_batch_acc = sess.run([self.cost, accuracy], feed_dict={self.x: val_x, self.y: val_y})
-                    val_loss += val_batch_loss / n_batches
-                    val_acc += val_batch_acc / n_batches
+                    train_err += train_batch_err / n_batches
+                val_loss, val_err = sess.run([self.cost, self.err], feed_dict={self.eye_left: val_data[0], \
+                                self.eye_right: val_data[1], self.face: val_data[2], \
+                                self.face_mask: val_data[3], self.y: val_data[4]})
 
                 train_loss_history.append(train_loss)
-                train_acc_history.append(train_acc)
+                train_err_history.append(train_err)
                 val_loss_history.append(val_loss)
-                val_acc_history.append(val_acc)
+                val_err_history.append(val_err)
                 if val_loss - min_delta < best_loss:
                     best_loss = val_loss
                     save_path = saver.save(sess, checkpoint_dir + out_model, global_step=n_epoch)
@@ -252,40 +303,21 @@ class ConvNet(object):
                     n_incr_error = 0
 
                 if n_epoch % print_per_epoch == 0:
-                    print 'Epoch %s/%s, train loss: %.5f, train acc: %.5f, val loss: %.5f, val acc: %.5f' % \
-                                                (n_epoch, max_epoch, train_loss, train_acc, val_loss, val_acc)
+                    print 'Epoch %s/%s, train loss: %.5f, train error: %.5f, val loss: %.5f, val error: %.5f' % \
+                                                (n_epoch, max_epoch, train_loss, train_err, val_loss, val_err)
 
                 if n_incr_error >= patience:
                     print 'Early stopping occured. Optimization Finished!'
-                    return train_loss_history, train_acc_history, val_loss_history, val_acc_history
+                    return train_loss_history, train_err_history, val_loss_history, val_err_history
 
-            return train_loss_history, train_acc_history, val_loss_history, val_acc_history
+            return train_loss_history, train_err_history, val_loss_history, val_err_history
 
     def pred(self, x, sess):
         y = sess.run(self.pred, feed_dict={self.x: x})
         return y
 
-    def calc_clf_error(self, x, y, sess):
-        pred = np.argmax(sess.run(self.pred, feed_dict={self.x: x}), 1)
-        labels = np.argmax(y, 1)
-        error_per_class = defaultdict(float)
-        count_per_class = defaultdict(float)
-
-        for i in range(labels.shape[0]):
-            count_per_class[labels[i]] += 1
-            if not labels[i] == pred[i]:
-                error_per_class[labels[i]] += 1
-
-        for each in error_per_class:
-            error_per_class[each] /= count_per_class[each]
-
-        return dict(error_per_class), np.mean(error_per_class.values())
-
-    def calc_acc(self, x, y, sess):
-        pred = sess.run(self.pred, feed_dict={self.x: x})
-        correct_pred = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
-        accuracy = sess.run(tf.reduce_mean(tf.cast(correct_pred, tf.float32)))
-        return accuracy
+    def calc_error(self, x, y, sess):
+        pass
 
     def restore_model(self, mod_file): # should no include .meta
         saver = tf.train.Saver()
@@ -312,13 +344,14 @@ class ConvNet(object):
         plt.savefig("%s_conv2d_%s"%(name[0], i) + name[1])
 
 
-def plot_loss(train_loss, val_loss, start=0, per=1, save_file='loss.png'):
-    assert len(train_loss) == len(val_loss)
+def plot_loss(train_loss, train_err, test_err, start=0, per=1, save_file='loss.png'):
+    assert len(train_err) == len(test_err)
     plt.figure(figsize=(10, 10), facecolor='white')
     idx = np.arange(start, len(train_loss), per)
     plt.plot(idx, train_loss[idx], alpha=1.0, label='train loss')
-    plt.plot(idx, val_loss[idx], alpha=1.0, label='test loss')
-    plt.xlabel('# of epoch')
+    plt.plot(idx, train_err[idx], alpha=1.0, label='train error')
+    plt.plot(idx, test_err[idx], alpha=1.0, label='test error')
+    plt.xlabel('epochs')
     plt.ylabel('loss')
     legend = plt.legend(loc='upper right', shadow=True)
     plt.savefig(save_file)
@@ -326,6 +359,20 @@ def plot_loss(train_loss, val_loss, start=0, per=1, save_file='loss.png'):
 
 def train(args):
     (train_eye_left, train_eye_right, train_face, train_face_mask, train_y), (val_eye_left, val_eye_right, val_face, val_face_mask, val_y) = load_data(args.input)
+
+    train_eye_left = train_eye_left[:10000]
+    train_eye_right = train_eye_right[:10000]
+    train_face = train_face[:10000]
+    train_face_mask = train_face_mask[:10000]
+    train_y = train_y[:10000]
+
+    val_eye_left = val_eye_left[:1000]
+    val_eye_right = val_eye_right[:1000]
+    val_face = val_face[:1000]
+    val_face_mask = val_face_mask[:1000]
+    val_y = val_y[:1000]
+
+
     train_eye_left = normalize(train_eye_left)
     train_eye_right = normalize(train_eye_right)
     train_face = normalize(train_face)
@@ -337,10 +384,9 @@ def train(args):
     val_face = normalize(val_face)
     val_face_mask = np.reshape(val_face_mask, (val_face_mask.shape[0], -1)).astype('float32')
     val_y = val_y.astype('float32')
-
     start = timeit.default_timer()
-    cnn = ConvNet()
-    train_loss_hist, train_acc_hist, test_loss_hist, test_acc_hist = cnn.train((train_eye_left, train_eye_right, train_face, train_face_mask, train_y), \
+    et = EyeTracker()
+    train_loss_history, train_err_history, _, val_err_history = et.train((train_eye_left, train_eye_right, train_face, train_face_mask, train_y), \
                                             (val_eye_left, val_eye_right, val_face, val_face_mask, val_y),\
                                             lr=args.learning_rate, \
                                             batch_size=args.batch_size, \
@@ -353,7 +399,7 @@ def train(args):
     print 'runtime: %.1fs' % (timeit.default_timer() - start)
 
     if args.plot_loss:
-        plot_loss(np.array(train_loss_hist), np.array(test_loss_hist), start=0, per=1, save_file=args.plot_loss)
+        plot_loss(np.array(train_loss_history), np.array(train_err_history), np.array(val_err_history), start=0, per=1, save_file=args.plot_loss)
 
 def test(args):
     _, _, test_x, test_y = load_data(args.input)
@@ -363,13 +409,13 @@ def test(args):
     test_y = dense_to_one_hot(np.array(test_y), n_classes)
     print 'Report results on %s test samples' % test_x.shape[0]
 
-    cnn = ConvNet()
-    sess = cnn.restore_model(args.load_model)
+    et = EyeTracker()
+    sess = et.restore_model(args.load_model)
     if args.plot_filter:
-        cnn.feature_visualize(sess, [4, 8], layer_ids=[0], channel_ids=range(conv1_out), out=args.plot_filter)
-    acc = cnn.calc_acc(test_x, test_y, sess)
+        et.feature_visualize(sess, [4, 8], layer_ids=[0], channel_ids=range(conv1_out), out=args.plot_filter)
+    acc = et.calc_acc(test_x, test_y, sess)
     print 'Accuracy: %.5f' % acc
-    error_per_class, avg_error = cnn.calc_clf_error(test_x, test_y, sess)
+    error_per_class, avg_error = et.calc_clf_error(test_x, test_y, sess)
     print 'Error per class: %s' % error_per_class
     print 'Average error: %.5f' % avg_error
     sess.close()
@@ -405,7 +451,7 @@ def main():
     parser.add_argument('--train', action='store_true', help='train flag')
     parser.add_argument('-i', '--input', required=True, type=str, help='path to the input data')
     parser.add_argument('-max_epoch', '--max_epoch', type=int, default=100, help='max number of iterations (default 100)')
-    parser.add_argument('-lr', '--learning_rate', type=float, default=1e-3, help='learning rate (default 1e-3)')
+    parser.add_argument('-lr', '--learning_rate', type=float, default=0.002, help='learning rate (default 1e-3)')
     parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size (default 50)')
     parser.add_argument('-p', '--patience', type=int, default=5, help='early stopping patience (default 10)')
     parser.add_argument('-pp_iter', '--print_per_epoch', type=int, default=1, help='print per iteration (default 10)')
