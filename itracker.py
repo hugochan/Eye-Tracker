@@ -312,12 +312,15 @@ class EyeTracker(object):
 
             return train_loss_history, train_err_history, val_loss_history, val_err_history
 
-    def pred(self, x, sess):
-        y = sess.run(self.pred, feed_dict={self.x: x})
-        return y
+    def pred(self, data, sess):
+        return sess.run(self.pred, feed_dict={self.eye_left: data[0], \
+                                self.eye_right: data[1], self.face: data[2], \
+                                self.face_mask: data[3]})
 
-    def calc_error(self, x, y, sess):
-        pass
+    def calc_error(self, data, sess):
+        return sess.run(self.err, feed_dict={self.eye_left: data[0], \
+                                self.eye_right: data[1], self.face: data[2], \
+                                self.face_mask: data[3], self.y: data[4]})
 
     def restore_model(self, mod_file): # should no include .meta
         saver = tf.train.Saver()
@@ -346,14 +349,26 @@ class EyeTracker(object):
 
 def plot_loss(train_loss, train_err, test_err, start=0, per=1, save_file='loss.png'):
     assert len(train_err) == len(test_err)
-    plt.figure(figsize=(10, 10), facecolor='white')
     idx = np.arange(start, len(train_loss), per)
-    plt.plot(idx, train_loss[idx], alpha=1.0, label='train loss')
-    plt.plot(idx, train_err[idx], alpha=1.0, label='train error')
-    plt.plot(idx, test_err[idx], alpha=1.0, label='test error')
-    plt.xlabel('epochs')
-    plt.ylabel('loss')
-    legend = plt.legend(loc='upper right', shadow=True)
+    fig, ax1 = plt.subplots()
+    lns1 = ax1.plot(idx, train_loss[idx], 'b-', alpha=1.0, label='train loss')
+    ax1.set_xlabel('epochs')
+    # Make the y-axis label, ticks and tick labels match the line color.
+    ax1.set_ylabel('loss', color='b')
+    ax1.tick_params('y', colors='b')
+
+    ax2 = ax1.twinx()
+    lns2 = ax2.plot(idx, train_err[idx], 'r-', alpha=1.0, label='train error')
+    lns3 = ax2.plot(idx, test_err[idx], 'g-', alpha=1.0, label='test error')
+    ax2.set_ylabel('error', color='r')
+    ax2.tick_params('y', colors='r')
+
+    # added these three lines
+    lns = lns1 + lns2 + lns3
+    labs = [l.get_label() for l in lns]
+    ax1.legend(lns, labs, loc=0)
+
+    fig.tight_layout()
     plt.savefig(save_file)
     # plt.show()
 
@@ -386,7 +401,7 @@ def train(args):
     val_y = val_y.astype('float32')
     start = timeit.default_timer()
     et = EyeTracker()
-    train_loss_history, train_err_history, _, val_err_history = et.train((train_eye_left, train_eye_right, train_face, train_face_mask, train_y), \
+    train_loss_history, train_err_history, val_loss_history, val_err_history = et.train((train_eye_left, train_eye_right, train_face, train_face_mask, train_y), \
                                             (val_eye_left, val_eye_right, val_face, val_face_mask, val_y),\
                                             lr=args.learning_rate, \
                                             batch_size=args.batch_size, \
@@ -398,26 +413,35 @@ def train(args):
 
     print 'runtime: %.1fs' % (timeit.default_timer() - start)
 
+    if args.save_loss:
+        with open(args.save_loss, 'w') as outfile:
+            np.savez(outfile, train_loss_history=train_loss_history, train_err_history=train_err_history, \
+                                    val_loss_history=val_loss_history, val_err_history=val_err_history)
+
     if args.plot_loss:
         plot_loss(np.array(train_loss_history), np.array(train_err_history), np.array(val_err_history), start=0, per=1, save_file=args.plot_loss)
 
 def test(args):
-    _, _, test_x, test_y = load_data(args.input)
-    test_x = np.reshape(test_x, (test_x.shape[0], -1))
-    test_x = test_x.astype('float32') / 255. # scaling
-    test_x = test_x - np.mean(test_x, axis=0) # normalizing
-    test_y = dense_to_one_hot(np.array(test_y), n_classes)
-    print 'Report results on %s test samples' % test_x.shape[0]
+    _, (val_eye_left, val_eye_right, val_face, val_face_mask, val_y) = load_data(args.input)
+
+    val_eye_left = val_eye_left[:1000]
+    val_eye_right = val_eye_right[:1000]
+    val_face = val_face[:1000]
+    val_face_mask = val_face_mask[:1000]
+    val_y = val_y[:1000]
+
+    val_eye_left = normalize(val_eye_left)
+    val_eye_right = normalize(val_eye_right)
+    val_face = normalize(val_face)
+    val_face_mask = np.reshape(val_face_mask, (val_face_mask.shape[0], -1)).astype('float32')
+    val_y = val_y.astype('float32')
 
     et = EyeTracker()
     sess = et.restore_model(args.load_model)
     if args.plot_filter:
         et.feature_visualize(sess, [4, 8], layer_ids=[0], channel_ids=range(conv1_out), out=args.plot_filter)
-    acc = et.calc_acc(test_x, test_y, sess)
-    print 'Accuracy: %.5f' % acc
-    error_per_class, avg_error = et.calc_clf_error(test_x, test_y, sess)
-    print 'Error per class: %s' % error_per_class
-    print 'Average error: %.5f' % avg_error
+    error = et.calc_error([val_eye_left, val_eye_right, val_face, val_face_mask, val_y], sess)
+    print 'Error: %.5f' % error
     sess.close()
 
 # Let's start with a naive way of visualizing these. Image-space gradient ascent!
@@ -459,6 +483,7 @@ def main():
     parser.add_argument('-lm', '--load_model', type=str, help='path to the loaded model')
     parser.add_argument('-pf', '--plot_filter', type=str, default='filter.png', help='plot filters')
     parser.add_argument('-pl', '--plot_loss', type=str, default='loss.png', help='plot loss')
+    parser.add_argument('-sl', '--save_loss', type=str, default='loss.npz', help='save loss')
     args = parser.parse_args()
 
     if args.train:
@@ -469,4 +494,8 @@ def main():
         test(args)
 
 if __name__ == '__main__':
-    main()
+    # main()
+    train_loss=np.random.randn(10)
+    train_err=np.random.randn(10)
+    test_err=np.random.randn(10)
+    plot_loss(train_loss, train_err, test_err)
