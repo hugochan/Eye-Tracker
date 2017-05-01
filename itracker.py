@@ -68,10 +68,6 @@ fc2_face_mask_size = 128
 fc_size = 128
 fc2_size = 2
 
-checkpoint_dir = 'ckpt/'
-
-if not os.path.exists(checkpoint_dir):
-    os.makedirs(checkpoint_dir)
 
 # Import data
 def load_data(file):
@@ -238,9 +234,11 @@ class EyeTracker(object):
         return out
 
     def train(self, train_data, val_data, lr=1e-3, batch_size=128, max_epoch=1000, min_delta=1e-4, patience=10, print_per_epoch=10, out_model='my_model'):
+        ckpt = os.path.split(out_model)[0]
+        if not os.path.exists(ckpt):
+            os.makedirs(ckpt)
+
         print 'Train on %s samples, validate on %s samples' % (train_data[0].shape[0], val_data[0].shape[0])
-
-
         # Define loss and optimizer
         self.cost = tf.losses.mean_squared_error(self.y, self.pred)
         self.optimizer = tf.train.AdamOptimizer(learning_rate=lr).minimize(self.cost)
@@ -298,7 +296,7 @@ class EyeTracker(object):
                 val_err_history.append(val_err)
                 if val_loss - min_delta < best_loss:
                     best_loss = val_loss
-                    save_path = saver.save(sess, checkpoint_dir + out_model, global_step=n_epoch)
+                    save_path = saver.save(sess, out_model, global_step=n_epoch)
                     print "Model saved in file: %s" % save_path
                     n_incr_error = 0
 
@@ -375,17 +373,19 @@ def plot_loss(train_loss, train_err, test_err, start=0, per=1, save_file='loss.p
 def train(args):
     (train_eye_left, train_eye_right, train_face, train_face_mask, train_y), (val_eye_left, val_eye_right, val_face, val_face_mask, val_y) = load_data(args.input)
 
-    train_eye_left = train_eye_left[:10000]
-    train_eye_right = train_eye_right[:10000]
-    train_face = train_face[:10000]
-    train_face_mask = train_face_mask[:10000]
-    train_y = train_y[:10000]
+    train_size = 10
+    val_size = 1
+    train_eye_left = train_eye_left[:train_size]
+    train_eye_right = train_eye_right[:train_size]
+    train_face = train_face[:train_size]
+    train_face_mask = train_face_mask[:train_size]
+    train_y = train_y[:train_size]
 
-    val_eye_left = val_eye_left[:1000]
-    val_eye_right = val_eye_right[:1000]
-    val_face = val_face[:1000]
-    val_face_mask = val_face_mask[:1000]
-    val_y = val_y[:1000]
+    val_eye_left = val_eye_left[:val_size]
+    val_eye_right = val_eye_right[:val_size]
+    val_face = val_face[:val_size]
+    val_face_mask = val_face_mask[:val_size]
+    val_y = val_y[:val_size]
 
 
     train_eye_left = normalize(train_eye_left)
@@ -423,12 +423,12 @@ def train(args):
 
 def test(args):
     _, (val_eye_left, val_eye_right, val_face, val_face_mask, val_y) = load_data(args.input)
-
-    val_eye_left = val_eye_left[:1000]
-    val_eye_right = val_eye_right[:1000]
-    val_face = val_face[:1000]
-    val_face_mask = val_face_mask[:1000]
-    val_y = val_y[:1000]
+    val_size = 10
+    val_eye_left = val_eye_left[:val_size]
+    val_eye_right = val_eye_right[:val_size]
+    val_face = val_face[:val_size]
+    val_face_mask = val_face_mask[:val_size]
+    val_y = val_y[:val_size]
 
     val_eye_left = normalize(val_eye_left)
     val_eye_right = normalize(val_eye_right)
