@@ -1,8 +1,6 @@
 import os
 import argparse
 import timeit
-import cPickle as pickle
-from collections import defaultdict
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
@@ -82,7 +80,7 @@ def load_data(file):
     val_face = npzfile["val_face"]
     val_face_mask = npzfile["val_face_mask"]
     val_y = npzfile["val_y"]
-    return (train_eye_left, train_eye_right, train_face, train_face_mask, train_y), (val_eye_left, val_eye_right, val_face, val_face_mask, val_y)
+    return [train_eye_left, train_eye_right, train_face, train_face_mask, train_y], [val_eye_left, val_eye_right, val_face, val_face_mask, val_y]
 
 def normalize(data):
     shape = data.shape
@@ -91,13 +89,14 @@ def normalize(data):
     data = data - np.mean(data, axis=0) # normalizing
     return np.reshape(data, shape)
 
-def dense_to_one_hot(labels_dense, num_classes):
-    """Convert class labels from scalars to one-hot vectors."""
-    num_labels = labels_dense.shape[0]
-    index_offset = np.arange(num_labels) * num_classes
-    labels_one_hot = np.zeros((num_labels, num_classes))
-    labels_one_hot.flat[index_offset + labels_dense.ravel()] = 1
-    return labels_one_hot
+def prepare_data(data):
+    eye_left, eye_right, face, face_mask, y = data
+    eye_left = normalize(eye_left)
+    eye_right = normalize(eye_right)
+    face = normalize(face)
+    face_mask = np.reshape(face_mask, (face_mask.shape[0], -1)).astype('float32')
+    y = y.astype('float32')
+    return [eye_left, eye_right, face, face_mask, y]
 
 def shuffle_data(data):
     idx = np.arange(data[0].shape[0])
@@ -276,14 +275,14 @@ class EyeTracker(object):
                 train_err = 0.
                 val_err = 0.
                 train_data = shuffle_data(train_data)
-                for batch_eye_left, batch_eye_right, batch_face, batch_face_mask, batch_y in next_batch(train_data, batch_size):
+                for batch_train_data in next_batch(train_data, batch_size):
                     # Run optimization op (backprop)
-                    sess.run(self.optimizer, feed_dict={self.eye_left: batch_eye_left, \
-                                self.eye_right: batch_eye_right, self.face: batch_face, \
-                                self.face_mask: batch_face_mask, self.y: batch_y})
-                    train_batch_loss, train_batch_err = sess.run([self.cost, self.err], feed_dict={self.eye_left: batch_eye_left, \
-                                self.eye_right: batch_eye_right, self.face: batch_face, \
-                                self.face_mask: batch_face_mask, self.y: batch_y})
+                    sess.run(self.optimizer, feed_dict={self.eye_left: batch_train_data[0], \
+                                self.eye_right: batch_train_data[1], self.face: batch_train_data[2], \
+                                self.face_mask: batch_train_data[3], self.y: batch_train_data[4]})
+                    train_batch_loss, train_batch_err = sess.run([self.cost, self.err], feed_dict={self.eye_left: batch_train_data[0], \
+                                self.eye_right: batch_train_data[1], self.face: batch_train_data[2], \
+                                self.face_mask: batch_train_data[3], self.y: batch_train_data[4]})
                     train_loss += train_batch_loss / n_batches
                     train_err += train_batch_err / n_batches
                 val_loss, val_err = sess.run([self.cost, self.err], feed_dict={self.eye_left: val_data[0], \
@@ -310,40 +309,59 @@ class EyeTracker(object):
 
             return train_loss_history, train_err_history, val_loss_history, val_err_history
 
-    def pred(self, data, sess):
-        return sess.run(self.pred, feed_dict={self.eye_left: data[0], \
-                                self.eye_right: data[1], self.face: data[2], \
-                                self.face_mask: data[3]})
+def extract_validation_handles(session):
+    """ Extracts the input and predict_op handles that we use for validation.
+    Args:
+        session: The session with the loaded graph.
+    Returns:
+        validation handles.
+    """
+    valid_nodes = tf.get_collection_ref("validation_nodes")
+    if len(valid_nodes) != 5:
+        raise Exception("ERROR: Expected 5 items in validation_nodes, got %d." % len(valid_nodes))
+    return valid_nodes
 
-    def calc_error(self, data, sess):
-        return sess.run(self.err, feed_dict={self.eye_left: data[0], \
-                                self.eye_right: data[1], self.face: data[2], \
-                                self.face_mask: data[3], self.y: data[4]})
+def load_model(session, save_path):
+    """ Loads a saved TF model from a file.
+    Args:
+        session: The tf.Session to use.
+        save_path: The save path for the saved session, returned by Saver.save().
+    Returns:
+        The inputs placehoder and the prediction operation.
+    """
+    print "Loading model from file '%s'..." % save_path
 
-    def restore_model(self, mod_file): # should no include .meta
-        saver = tf.train.Saver()
-        sess = tf.Session()
-        saver.restore(sess, mod_file)
-        return sess
+    meta_file = save_path + ".meta"
+    if not os.path.exists(meta_file):
+        raise Exception("ERROR: Expected .meta file '%s', but could not find it." % meta_file)
 
-    def feature_visualize(self, sess, pic, layer_ids=[0], channel_ids=[0], out='filter.png'):
-        graph = tf.get_default_graph()
-        graph_def = tf.GraphDef()
-        layers = [op.name for op in graph.get_operations() if op.type=='Conv2D']
-        # feature_nums = [int(graph.get_tensor_by_name(name+':0').get_shape()[-1]) for name in layers]
-        # print 'Number of layers', len(layers)
-        # print 'Total number of feature channels:', sum(feature_nums)
-        fig = plt.figure()
-        # start with a gray image with a little noise
-        for i in layer_ids:
-            for j in channel_ids:
-                img_noise = np.random.uniform(size=(1, n_input))
-                name = os.path.splitext(out)
-                fig.add_subplot(pic[0], pic[1], j + 1)
-                render_naive(sess, self.x, T(graph, layers[i])[:,:,:,j], img0=img_noise, \
-                    iter_n=100, step=.5, out="%s_conv2d_%s_channel_%s"%(name[0], i, j)+name[1])
-        plt.savefig("%s_conv2d_%s"%(name[0], i) + name[1])
+    saver = tf.train.import_meta_graph(meta_file)
+    # It's finicky about the save path.
+    save_path = os.path.join("./", save_path)
+    saver.restore(session, save_path)
 
+    # Check that we have the handles we expected.
+    return extract_validation_handles(session)
+
+def validate_model(session, val_data, val_ops):
+    """ Validates the model stored in a session.
+    Args:
+        session: The session where the model is loaded.
+        val_data: The validation data to use for evaluating the model.
+        val_ops: The validation operations.
+    Returns:
+        The overall validation error for the model. """
+    print "Validating model..."
+
+    eye_left, eye_right, face, face_mask, pred = val_ops
+    val_eye_left, val_eye_right, val_face, val_face_mask, val_y = val_data
+    y = tf.placeholder(tf.float32, [None, 2], name='pos')
+    err = tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.squared_difference(pred, y), axis=1)))
+    # Validate the model.
+    error = session.run(err, feed_dict={eye_left: val_eye_left, \
+                                eye_right: val_eye_right, face: val_face, \
+                                face_mask: val_face_mask, y: val_y})
+    return error
 
 def plot_loss(train_loss, train_err, test_err, start=0, per=1, save_file='loss.png'):
     assert len(train_err) == len(test_err)
@@ -371,38 +389,19 @@ def plot_loss(train_loss, train_err, test_err, start=0, per=1, save_file='loss.p
     # plt.show()
 
 def train(args):
-    (train_eye_left, train_eye_right, train_face, train_face_mask, train_y), (val_eye_left, val_eye_right, val_face, val_face_mask, val_y) = load_data(args.input)
+    train_data, val_data = load_data(args.input)
 
     train_size = 10
+    train_data = [each[:train_size] for each in train_data]
     val_size = 1
-    train_eye_left = train_eye_left[:train_size]
-    train_eye_right = train_eye_right[:train_size]
-    train_face = train_face[:train_size]
-    train_face_mask = train_face_mask[:train_size]
-    train_y = train_y[:train_size]
+    val_data = [each[:val_size] for each in val_data]
 
-    val_eye_left = val_eye_left[:val_size]
-    val_eye_right = val_eye_right[:val_size]
-    val_face = val_face[:val_size]
-    val_face_mask = val_face_mask[:val_size]
-    val_y = val_y[:val_size]
+    train_data = prepare_data(train_data)
+    val_data = prepare_data(val_data)
 
-
-    train_eye_left = normalize(train_eye_left)
-    train_eye_right = normalize(train_eye_right)
-    train_face = normalize(train_face)
-    train_face_mask = np.reshape(train_face_mask, (train_face_mask.shape[0], -1)).astype('float32')
-    train_y = train_y.astype('float32')
-
-    val_eye_left = normalize(val_eye_left)
-    val_eye_right = normalize(val_eye_right)
-    val_face = normalize(val_face)
-    val_face_mask = np.reshape(val_face_mask, (val_face_mask.shape[0], -1)).astype('float32')
-    val_y = val_y.astype('float32')
     start = timeit.default_timer()
     et = EyeTracker()
-    train_loss_history, train_err_history, val_loss_history, val_err_history = et.train([train_eye_left, train_eye_right, train_face, train_face_mask, train_y], \
-                                            [val_eye_left, val_eye_right, val_face, val_face_mask, val_y],\
+    train_loss_history, train_err_history, val_loss_history, val_err_history = et.train(train_data, val_data, \
                                             lr=args.learning_rate, \
                                             batch_size=args.batch_size, \
                                             max_epoch=args.max_epoch, \
@@ -422,53 +421,18 @@ def train(args):
         plot_loss(np.array(train_loss_history), np.array(train_err_history), np.array(val_err_history), start=0, per=1, save_file=args.plot_loss)
 
 def test(args):
-    _, (val_eye_left, val_eye_right, val_face, val_face_mask, val_y) = load_data(args.input)
+    _, val_data = load_data(args.input)
+
     val_size = 10
-    val_eye_left = val_eye_left[:val_size]
-    val_eye_right = val_eye_right[:val_size]
-    val_face = val_face[:val_size]
-    val_face_mask = val_face_mask[:val_size]
-    val_y = val_y[:val_size]
+    val_data = [each[:val_size] for each in val_data]
 
-    val_eye_left = normalize(val_eye_left)
-    val_eye_right = normalize(val_eye_right)
-    val_face = normalize(val_face)
-    val_face_mask = np.reshape(val_face_mask, (val_face_mask.shape[0], -1)).astype('float32')
-    val_y = val_y.astype('float32')
+    val_data = prepare_data(val_data)
 
-    et = EyeTracker()
-    sess = et.restore_model(args.load_model)
-    # if args.plot_filter:
-        # et.feature_visualize(sess, [4, 8], layer_ids=[0], channel_ids=range(conv1_out), out=args.plot_filter)
-    error = et.calc_error([val_eye_left, val_eye_right, val_face, val_face_mask, val_y], sess)
-    print 'Error: %.5f' % error
-    sess.close()
-
-# Let's start with a naive way of visualizing these. Image-space gradient ascent!
-# Picking some internal layer. Note that we use outputs before applying the ReLU nonlinearity
-# to have non-zero gradients for features with negative initial activations.
-def visstd(a, s=0.1):
-    '''Normalize the image range for visualization'''
-    return (a - a.mean()) / max(a.std(), 1e-4) * s + 0.5
-
-def T(graph, layer):
-    '''Helper for getting layer output tensor'''
-    return graph.get_tensor_by_name("%s:0"%layer)
-
-def render_naive(sess, t_input, t_obj, img0, iter_n=20, step=1.0, out='filter.png'):
-    t_score = tf.reduce_mean(t_obj) # defining the optimization objective
-    t_grad = tf.gradients(t_score, t_input)[0] # behold the power of automatic differentiation!
-
-    img = img0.copy()
-    for i in range(iter_n):
-        g, score = sess.run([t_grad, t_score], {t_input: img})
-        # normalizing the gradient, so the same step size should work
-        g /= g.std() + 1e-8         # for different layers and networks
-        img += g * step
-    a = np.uint8(np.clip(visstd(img.reshape((img_size, img_size, n_channel))), 0, 1) * 255)
-    plt.axis('off')
-    plt.imshow(a, interpolation='nearest')
-    # plt.savefig(out)
+    # Load and validate the network.
+    with tf.Session() as sess:
+        val_ops = load_model(sess, args.load_model)
+        error = validate_model(sess, val_data, val_ops)
+        print 'Overall validation error: %f' % error
 
 def main():
     parser = argparse.ArgumentParser()
