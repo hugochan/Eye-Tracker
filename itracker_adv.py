@@ -218,10 +218,12 @@ class EyeTracker(object):
         eye_left = tf.reshape(eye_left, [-1, int(np.prod(eye_left.get_shape()[1:]))])
         eye_right = tf.reshape(eye_right, [-1, int(np.prod(eye_right.get_shape()[1:]))])
         eye = tf.concat([eye_left, eye_right], 1)
+        eye = tf.nn.dropout(eye, 0.5)
         eye = tf.nn.relu(tf.add(tf.matmul(eye, weights['fc_eye']), biases['fc_eye']))
 
         # face
         face = tf.reshape(face, [-1, int(np.prod(face.get_shape()[1:]))])
+        face = tf.nn.dropout(face, 0.5)
         face = tf.nn.relu(tf.add(tf.matmul(face, weights['fc_face']), biases['fc_face']))
         # face = tf.nn.relu(tf.add(tf.matmul(face, weights['fc2_face']), biases['fc2_face']))
 
