@@ -391,11 +391,11 @@ def plot_loss(train_loss, train_err, test_err, start=0, per=1, save_file='loss.p
 def train(args):
     train_data, val_data = load_data(args.input)
 
-    train_size = 10
-    train_data = [each[:train_size] for each in train_data]
-    val_size = 1
-    val_data = [each[:val_size] for each in val_data]
-
+    # train_size = 10
+    # train_data = [each[:train_size] for each in train_data]
+    # val_size = 1
+    # val_data = [each[:val_size] for each in val_data]
+    import pdb;pdb.set_trace()
     train_data = prepare_data(train_data)
     val_data = prepare_data(val_data)
 

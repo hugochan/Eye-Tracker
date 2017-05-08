@@ -212,24 +212,19 @@ class EyeTracker(object):
         eye_left = tf.reshape(eye_left, [-1, int(np.prod(eye_left.get_shape()[1:]))])
         eye_right = tf.reshape(eye_right, [-1, int(np.prod(eye_right.get_shape()[1:]))])
         eye = tf.concat([eye_left, eye_right], 1)
-        eye = tf.nn.dropout(eye, 0.5)
         eye = tf.nn.relu(tf.add(tf.matmul(eye, weights['fc_eye']), biases['fc_eye']))
 
         # face
         face = tf.reshape(face, [-1, int(np.prod(face.get_shape()[1:]))])
-        face = tf.nn.dropout(face, 0.5)
         face = tf.nn.relu(tf.add(tf.matmul(face, weights['fc_face']), biases['fc_face']))
-        # face = tf.nn.relu(tf.add(tf.matmul(face, weights['fc2_face']), biases['fc2_face']))
 
         # face mask
         face_mask = tf.nn.relu(tf.add(tf.matmul(face_mask, weights['fc_face_mask']), biases['fc_face_mask']))
-        # face_mask = tf.nn.relu(tf.add(tf.matmul(face_mask, weights['fc2_face_mask']), biases['fc2_face_mask']))
 
         face_face_mask = tf.concat([face, face_mask], 1)
         face_face_mask = tf.nn.relu(tf.add(tf.matmul(face_face_mask, weights['face_face_mask']), biases['face_face_mask']))
 
         # all
-        # fc = tf.concat([eye, face, face_mask], 1)
         fc = tf.concat([eye, face_face_mask], 1)
         fc = tf.nn.relu(tf.add(tf.matmul(fc, weights['fc']), biases['fc']))
         out = tf.add(tf.matmul(fc, weights['fc2']), biases['fc2'])
@@ -270,6 +265,8 @@ class EyeTracker(object):
         # Launch the graph
         with tf.Session() as sess:
             sess.run(init)
+            writer = tf.summary.FileWriter("logs", sess.graph)
+
             # Keep training until reach max iterations
             for n_epoch in range(1, max_epoch + 1):
                 n_incr_error += 1
