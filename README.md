@@ -22,4 +22,4 @@ The iTracker model was implemented in itracker.py and the modified one was
 implemented in itracker_adv.py.
 Note that a smaller dataset (i.e., a subset of the full dataset in the original paper) was used in experiments and no data augmentation was applied.
 This smaller dataset contains 48,000 training samples and 5,000 validation samples.
-You can download this smaller dataset [here](http://hugochan.net/~download/eye_tracker_train_and_val.npz).
+You can download this smaller dataset [here](http://hugochan.net/download/eye_tracker_train_and_val.npz).
