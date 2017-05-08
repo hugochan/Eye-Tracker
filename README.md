@@ -2,12 +2,12 @@
 Implemented and improved the iTracker model proposed in paper [Eye Tracking for Everyone](https://arxiv.org/abs/1606.05814).
 
 ![](itracker_arch.png)
-*<center><h3>Figure 1: itracker architecture</h3></center>*
+*<center><h3>Figure 1: iTracker architecture</h3></center>*
 
 ![](itracker_adv_arch.png)
-*<center><h3>Figure 2: modified itracker architecture</h3></center>*
+*<center><h3>Figure 2: modified iTracker architecture</h3></center>*
 
-Figure 1 and 2 show the architectures of the iTracker model
+Figures 1 and 2 show the architectures of the iTracker model
 and the modified model. The only difference between the modified model and the iTracker model is
 that we concatenate the face layer FC-F1 and face mask layer FC-FG1 first, after applying a fully connected layer FC-F2,
 we then concatenate the eye layer FC-E1 and FC-F2 layer.
@@ -20,5 +20,6 @@ In experiments, the modified model converged faster (28 epochs vs. 40+ epochs) a
 error (2.19 cm vs. 2.514 cm).
 The iTracker model was implemented in itracker.py and the modified one was
 implemented in itracker_adv.py.
-Note that a smaller dataset was used in experiments and no data augmentation was applied.
-You can download the dataset [here]().
+Note that a smaller dataset (i.e., a subset of the full dataset in the original paper) was used in experiments and no data augmentation was applied.
+This smaller dataset contains 48,000 training samples and 5,000 validation samples.
+You can download this smaller dataset [here](http://hugochan.net/~download/eye_tracker_train_and_val.npz).
