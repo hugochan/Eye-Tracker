@@ -1,9 +1,13 @@
 # Eye Tracker
 Implemented and improved the iTracker model proposed in paper [Eye Tracking for Everyone](https://arxiv.org/abs/1606.05814).
 
-<img src="overall_arch.png" height="300" width="500" alt="overall architecture"></img>
+![](itracker_arch.png)
+*<center><h3>Figure 1: itracker architecture</h3></center>*
 
-Figure 1 shows the architectures of the iTracker model
+![](itracker_adv_arch.png)
+*<center><h3>Figure 2: modified itracker architecture</h3></center>*
+
+Figure 1 and 2 show the architectures of the iTracker model
 and the modified model. The only difference between the modified model and the iTracker model is
 that we concatenate the face layer FC-F1 and face mask layer FC-FG1 first, after applying a fully connected layer FC-F2,
 we then concatenate the eye layer FC-E1 and FC-F2 layer.
