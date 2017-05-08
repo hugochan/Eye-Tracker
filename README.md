@@ -1,5 +1,5 @@
 # Eye Tracker
-Implemented and improved the iTracker model proposed in paper [Eye Tracking for Everyone](https://arxiv.org/abs/1606.05814).
+Implemented and improved the iTracker model proposed in the paper [Eye Tracking for Everyone](https://arxiv.org/abs/1606.05814).
 
 ![](itracker_arch.png)
 *<center><h3>Figure 1: iTracker architecture</h3></center>*
