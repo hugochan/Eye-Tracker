@@ -60,9 +60,7 @@ face_size = 2 * 2 * conv4_face_out
 # fc layer
 fc_eye_size = 128
 fc_face_size = 128
-# fc2_face_size = 64
 fc_face_mask_size = 256
-# fc2_face_mask_size = 128
 face_face_mask_size = 128
 fc_size = 128
 fc2_size = 2
@@ -131,9 +129,7 @@ class EyeTracker(object):
             'conv4_face': tf.get_variable('conv4_face_w', shape=(conv4_face_size, conv4_face_size, conv3_face_out, conv4_face_out), initializer=tf.contrib.layers.xavier_initializer()),
             'fc_eye': tf.get_variable('fc_eye_w', shape=(eye_size, fc_eye_size), initializer=tf.contrib.layers.xavier_initializer()),
             'fc_face': tf.get_variable('fc_face_w', shape=(face_size, fc_face_size), initializer=tf.contrib.layers.xavier_initializer()),
-            # 'fc2_face': tf.get_variable('fc2_face_w', shape=(fc_face_size, fc2_face_size), initializer=tf.contrib.layers.xavier_initializer()),
             'fc_face_mask': tf.get_variable('fc_face_mask_w', shape=(mask_size * mask_size, fc_face_mask_size), initializer=tf.contrib.layers.xavier_initializer()),
-            # 'fc2_face_mask': tf.get_variable('fc2_face_mask_w', shape=(fc_face_mask_size, fc2_face_mask_size), initializer=tf.contrib.layers.xavier_initializer()),
             'face_face_mask': tf.get_variable('face_face_mask_w', shape=(fc_face_size + fc_face_mask_size, face_face_mask_size), initializer=tf.contrib.layers.xavier_initializer()),
             'fc': tf.get_variable('fc_w', shape=(fc_eye_size + face_face_mask_size, fc_size), initializer=tf.contrib.layers.xavier_initializer()),
             'fc2': tf.get_variable('fc2_w', shape=(fc_size, fc2_size), initializer=tf.contrib.layers.xavier_initializer())
@@ -149,9 +145,7 @@ class EyeTracker(object):
             'conv4_face': tf.Variable(tf.constant(0.1, shape=[conv4_face_out])),
             'fc_eye': tf.Variable(tf.constant(0.1, shape=[fc_eye_size])),
             'fc_face': tf.Variable(tf.constant(0.1, shape=[fc_face_size])),
-            # 'fc2_face': tf.Variable(tf.constant(0.1, shape=[fc2_face_size])),
             'fc_face_mask': tf.Variable(tf.constant(0.1, shape=[fc_face_mask_size])),
-            # 'fc2_face_mask': tf.Variable(tf.constant(0.1, shape=[fc2_face_mask_size])),
             'face_face_mask': tf.Variable(tf.constant(0.1, shape=[face_face_mask_size])),
             'fc': tf.Variable(tf.constant(0.1, shape=[fc_size])),
             'fc2': tf.Variable(tf.constant(0.1, shape=[fc2_size]))
@@ -447,14 +441,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--train', action='store_true', help='train flag')
     parser.add_argument('-i', '--input', required=True, type=str, help='path to the input data')
-    parser.add_argument('-max_epoch', '--max_epoch', type=int, default=100, help='max number of iterations (default 100)')
-    parser.add_argument('-lr', '--learning_rate', type=float, default=0.002, help='learning rate (default 1e-3)')
-    parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size (default 50)')
-    parser.add_argument('-p', '--patience', type=int, default=5, help='early stopping patience (default 10)')
-    parser.add_argument('-pp_iter', '--print_per_epoch', type=int, default=1, help='print per iteration (default 10)')
-    parser.add_argument('-sm', '--save_model', type=str, default='my_model', help='path to the output model (default my_model)')
+    parser.add_argument('-max_epoch', '--max_epoch', type=int, default=100, help='max number of iterations')
+    parser.add_argument('-lr', '--learning_rate', type=float, default=0.0025, help='learning rate')
+    parser.add_argument('-bs', '--batch_size', type=int, default=200, help='batch size')
+    parser.add_argument('-p', '--patience', type=int, default=5, help='early stopping patience')
+    parser.add_argument('-pp_iter', '--print_per_epoch', type=int, default=1, help='print per iteration')
+    parser.add_argument('-sm', '--save_model', type=str, default='my_model', help='path to the output model')
     parser.add_argument('-lm', '--load_model', type=str, help='path to the loaded model')
-    parser.add_argument('-pf', '--plot_filter', type=str, default='filter.png', help='plot filters')
     parser.add_argument('-pl', '--plot_loss', type=str, default='loss.png', help='plot loss')
     parser.add_argument('-sl', '--save_loss', type=str, default='loss.npz', help='save loss')
     args = parser.parse_args()
