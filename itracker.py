@@ -395,7 +395,6 @@ def train(args):
     # train_data = [each[:train_size] for each in train_data]
     # val_size = 1
     # val_data = [each[:val_size] for each in val_data]
-    import pdb;pdb.set_trace()
     train_data = prepare_data(train_data)
     val_data = prepare_data(val_data)
 
@@ -423,8 +422,8 @@ def train(args):
 def test(args):
     _, val_data = load_data(args.input)
 
-    val_size = 10
-    val_data = [each[:val_size] for each in val_data]
+    # val_size = 10
+    # val_data = [each[:val_size] for each in val_data]
 
     val_data = prepare_data(val_data)
 
