@@ -23,3 +23,17 @@ implemented in itracker_adv.py.
 Note that a smaller dataset (i.e., a subset of the full dataset in the original paper) was used in experiments and no data augmentation was applied.
 This smaller dataset contains 48,000 training samples and 5,000 validation samples.
 You can download this smaller dataset [here](http://hugochan.net/download/eye_tracker_train_and_val.npz).
+
+# Get started
+To train the model: run
+`python itracker_adv.py --train -i input_data -sm saved_model`
+
+To test the trained model: run
+`python itracker_adv.py -i input_data -lm saved_model`
+
+You can find a pretrained (on the smaller dataset) model under the pretrained_models/itracker_adv/ folder.
+
+# FAQ
+1) What are the datasets?
+
+The original dataset comes from the [GazeCapture](http://gazecapture.csail.mit.edu/) project. The dataset involves over 1400 subjects and results in more than 2 million face images. Due to the limitation of computation power, a much [smaller dataset](http://hugochan.net/download/eye_tracker_train_and_val.npz) with 48000 training samples and 5000 validation samples was used here. Each sample contains 5 items: face, left eye, right eye, face mask and labels.
