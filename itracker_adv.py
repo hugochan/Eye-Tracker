@@ -249,6 +249,7 @@ class EyeTracker(object):
         n_incr_error = 0  # nb. of consecutive increase in error
         best_loss = np.Inf
         n_batches = train_data[0].shape[0] / batch_size + (train_data[0].shape[0] % batch_size != 0)
+        val_n_batches = val_data[0].shape[0] / batch_size + (val_data[0].shape[0] % batch_size != 0)
 
         # Create the collection
         tf.get_collection("validation_nodes")
@@ -271,9 +272,7 @@ class EyeTracker(object):
             for n_epoch in range(1, max_epoch + 1):
                 n_incr_error += 1
                 train_loss = 0.
-                val_loss = 0.
                 train_err = 0.
-                val_err = 0.
                 train_data = shuffle_data(train_data)
                 for batch_train_data in next_batch(train_data, batch_size):
                     # Run optimization op (backprop)
@@ -285,9 +284,15 @@ class EyeTracker(object):
                                 self.face_mask: batch_train_data[3], self.y: batch_train_data[4]})
                     train_loss += train_batch_loss / n_batches
                     train_err += train_batch_err / n_batches
-                val_loss, val_err = sess.run([self.cost, self.err], feed_dict={self.eye_left: val_data[0], \
-                                self.eye_right: val_data[1], self.face: val_data[2], \
-                                self.face_mask: val_data[3], self.y: val_data[4]})
+
+                val_loss = 0.
+                val_err = 0
+                for batch_val_data in next_batch(val_data, batch_size):
+                    val_batch_loss, val_batch_err = sess.run([self.cost, self.err], feed_dict={self.eye_left: batch_val_data[0], \
+                                    self.eye_right: batch_val_data[1], self.face: batch_val_data[2], \
+                                    self.face_mask: batch_val_data[3], self.y: batch_val_data[4]})
+                    val_loss += val_batch_loss / val_n_batches
+                    val_err += val_batch_err / val_n_batches
 
                 train_loss_history.append(train_loss)
                 train_err_history.append(train_err)
@@ -343,7 +348,7 @@ def load_model(session, save_path):
     # Check that we have the handles we expected.
     return extract_validation_handles(session)
 
-def validate_model(session, val_data, val_ops):
+def validate_model(session, val_data, val_ops, batch_size=200):
     """ Validates the model stored in a session.
     Args:
         session: The session where the model is loaded.
@@ -354,14 +359,17 @@ def validate_model(session, val_data, val_ops):
     print "Validating model..."
 
     eye_left, eye_right, face, face_mask, pred = val_ops
-    val_eye_left, val_eye_right, val_face, val_face_mask, val_y = val_data
     y = tf.placeholder(tf.float32, [None, 2], name='pos')
     err = tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.squared_difference(pred, y), axis=1)))
     # Validate the model.
-    error = session.run(err, feed_dict={eye_left: val_eye_left, \
-                                eye_right: val_eye_right, face: val_face, \
-                                face_mask: val_face_mask, y: val_y})
-    return error
+    val_n_batches = val_data[0].shape[0] / batch_size + (val_data[0].shape[0] % batch_size != 0)
+    val_err = 0
+    for batch_val_data in next_batch(val_data, batch_size):
+        val_batch_err = session.run(err, feed_dict={eye_left: batch_val_data[0], \
+                                    eye_right: batch_val_data[1], face: batch_val_data[2], \
+                                    face_mask: batch_val_data[3], y: batch_val_data[4]})
+        val_err += val_batch_err / val_n_batches
+    return val_err
 
 def plot_loss(train_loss, train_err, test_err, start=0, per=1, save_file='loss.png'):
     assert len(train_err) == len(test_err)
@@ -431,7 +439,7 @@ def test(args):
     # Load and validate the network.
     with tf.Session() as sess:
         val_ops = load_model(sess, args.load_model)
-        error = validate_model(sess, val_data, val_ops)
+        error = validate_model(sess, val_data, val_ops, batch_size=args.batch_size)
         print 'Overall validation error: %f' % error
 
 def main():
