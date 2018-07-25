@@ -37,3 +37,6 @@ You can find a pretrained (on the smaller dataset) model under the pretrained_mo
 1) What are the datasets?
 
 The original dataset comes from the [GazeCapture](http://gazecapture.csail.mit.edu/) project. The dataset involves over 1400 subjects and results in more than 2 million face images. Due to the limitation of computation power, a much [smaller dataset](http://hugochan.net/download/eye_tracker_train_and_val.npz) with 48000 training samples and 5000 validation samples was used here. Each sample contains 5 items: face, left eye, right eye, face mask and labels.
+
+# Other implementations
+For pytorch implementations, see [GazeCapture](https://github.com/CSAILVision/GazeCapture).
